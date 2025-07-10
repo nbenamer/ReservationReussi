@@ -1,0 +1,118 @@
+version: "3.8"
+
+# ───────────────────────── Réseau commun ─────────────────────────
+networks:
+  galera:
+    driver: bridge
+
+# ───────────────────────── Volumes persos ─────────────────────────
+volumes:
+  mariadb1_data:
+  mariadb2_data:
+  mariadb3_data:
+
+# ──────────────────────────── Services ────────────────────────────
+services:
+
+  # ────────────────────── GALERA NŒUD 1 (bootstrap) ──────────────────────
+  mariadb1:
+    image: bitnami/mariadb-galera:latest
+    container_name: mariadb1
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=password          # root
+      - MARIADB_DATABASE=reservation_db         # BDD initiale
+      - MARIADB_GALERA_CLUSTER_NAME=tp_cluster
+      - MARIADB_GALERA_CLUSTER_ADDRESS=gcomm://mariadb1,mariadb2,mariadb3
+      - MARIADB_GALERA_NODE_NAME=mariadb1
+      - MARIADB_GALERA_FORCE_SAFETOBOOTSTRAP=yes  # ⚠️ garder "yes" seulement AU PREMIER LANCEMENT !
+      - MARIADB_GALERA_MARIABACKUP_PASSWORD=bkp
+    volumes:
+      - mariadb1_data:/bitnami/mariadb
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # script d’init éventuel
+    networks: [galera]
+    # Port exposé pour tests locaux (host 3335 → conteneur 3306)
+    ports:
+      - "3335:3306"
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/mariadb/healthcheck.sh"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 5s
+
+  # ────────────────────── GALERA NŒUD 2 ──────────────────────
+  mariadb2:
+    image: bitnami/mariadb-galera:latest
+    container_name: mariadb2
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=password
+      - MARIADB_DATABASE=reservation_db
+      - MARIADB_GALERA_CLUSTER_NAME=tp_cluster
+      - MARIADB_GALERA_CLUSTER_ADDRESS=gcomm://mariadb1,mariadb2,mariadb3
+      - MARIADB_GALERA_NODE_NAME=mariadb2
+      - MARIADB_GALERA_MARIABACKUP_PASSWORD=bkp
+    volumes:
+      - mariadb2_data:/bitnami/mariadb
+    networks: [galera]
+    depends_on:
+      mariadb1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/mariadb/healthcheck.sh"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 5s
+
+  # ────────────────────── GALERA NŒUD 3 ──────────────────────
+  mariadb3:
+    image: bitnami/mariadb-galera:latest
+    container_name: mariadb3
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=password
+      - MARIADB_DATABASE=reservation_db
+      - MARIADB_GALERA_CLUSTER_NAME=tp_cluster
+      - MARIADB_GALERA_CLUSTER_ADDRESS=gcomm://mariadb1,mariadb2,mariadb3
+      - MARIADB_GALERA_NODE_NAME=mariadb3
+      - MARIADB_GALERA_MARIABACKUP_PASSWORD=bkp
+    volumes:
+      - mariadb3_data:/bitnami/mariadb
+    networks: [galera]
+    depends_on:
+      mariadb1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/mariadb/healthcheck.sh"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 5s
+
+  # ──────────────────────── APPLICATION PHP ────────────────────────
+  php:
+    build: .                     # Dockerfile + code dans le dossier courant
+    container_name: reservation-app
+    restart: unless-stopped
+    depends_on:
+      mariadb1:
+        condition: service_healthy
+      mariadb2:
+        condition: service_healthy
+      mariadb3:
+        condition: service_healthy
+    environment:
+      - APACHE_DOCUMENT_ROOT=/var/www/html/public
+      # Variables de connexion à la BDD (à consommer dans ton code)
+      - DB_HOST=mariadb1
+      - DB_PORT=3306
+      - DB_NAME=reservation_db
+      - DB_USER=root
+      - DB_PASS=password
+    volumes:
+      - ./:/var/www/html
+    ports:
+      - "3021:80"
+    networks: [galera]

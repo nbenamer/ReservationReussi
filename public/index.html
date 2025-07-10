@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Réserver une place</title>
+  <style>
+    body { font-family: sans-serif; max-width: 480px; margin: 2rem auto; }
+    label { display: block; margin-top: 1rem; }
+    input, button { width: 100%; padding: .5rem; box-sizing: border-box; }
+    button { margin-top: 1rem; }
+    #msg   { margin-top: 1rem; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Réserver une place</h1>
+
+  <label>
+    ID de l’événement
+    <input id="event" name="event_id" type="number" value="1" required>
+    <span id="stock" style="font-size:.9em;color:#666;"></span>
+  </label>
+
+  <label>
+    ID utilisateur (fictif)
+    <input id="user" name="user_id" type="number" value="42" required>
+  </label>
+
+  <button id="reserveBtn">Réserver</button>
+
+  <p id="msg"></p>
+
+<script>
+const eventInput  = document.getElementById('event');
+const userInput   = document.getElementById('user');
+const stockSpan   = document.getElementById('stock');
+const reserveBtn  = document.getElementById('reserveBtn');
+const msg         = document.getElementById('msg');
+
+/* --- Afficher les places restantes --- */
+async function refreshStock() {
+  const id = eventInput.value;
+  if (!id) { stockSpan.textContent = ''; return; }
+  try {
+    const res  = await fetch(`index.php?event_id=${id}`);
+    const data = await res.json();
+    stockSpan.textContent = `(places restantes : ${data.remaining})`;
+  } catch {
+    stockSpan.textContent = '(erreur serveur)';
+  }
+}
+
+/* --- Réservation --- */
+reserveBtn.onclick = async () => {
+  msg.textContent = '...';
+  const body = new URLSearchParams({
+    event_id: eventInput.value,
+    user_id:  userInput.value
+  });
+  const res  = await fetch('index.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body
+  });
+  const data = await res.json();
+
+  if (data.success) {
+    msg.textContent = '✅ Réservation confirmée !';
+    msg.style.color = 'green';
+  } else {
+    msg.textContent = `❌ ${data.message}`;
+    msg.style.color = 'red';
+  }
+  await refreshStock();
+};
+
+eventInput.oninput = refreshStock;
+refreshStock();      // initial
+</script>
+</body>
+</html>
